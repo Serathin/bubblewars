@@ -3,9 +3,9 @@ require daslib/random
 require daslib/decs_boost
 
 enum UnitType
-    YELLOW //yellow > red
-    RED    //red > blue
-    BLUE   //blue > yellow
+    SPEARMAN  //spearman > cavalry
+    CAVALRY   //cavalry > swordsman
+    SWORDSMAN //swordsman > spearman
 
 let top_offset = 4
 let left_offset = 4
@@ -195,18 +195,18 @@ def initialize(is_hard_reload: bool)
         ui_line_height = uint(screen_height * 2 / 3)
         make_line(0, int(ui_line_height), screen_width, int(ui_line_height), 0xFFFF80)
         make_line(int(war_line_width), 0, int(war_line_width), int(ui_line_height), 0xFFF0000)
-        make_cell("yellow.png", UnitType YELLOW, 0xFFFF00)
-        make_cell("red.png", UnitType RED, 0xFF0000)
-        make_cell("blue.png", UnitType BLUE, 0x0000FF)
+        make_cell("spearman_house.png", UnitType SPEARMAN, 0xFFFF00)
+        make_cell("cavalry_house.png", UnitType CAVALRY, 0xFF0000)
+        make_cell("swordsman_house.png", UnitType SWORDSMAN, 0x0000FF)
         make_field()
         make_units_arrays()
-        player_building = make_building(float2(0, int(ui_line_height / 2U) - int(cell_height / 2U)), 50U, "rect.png")
+        player_building = make_building(float2(0, int(ui_line_height / 2U) - int(cell_height / 2U)), 50U, "main_build.png")
         bot_building = make_building(float2(screen_width - int(cell_width), int(ui_line_height / 2U) - int(cell_height / 2U)),
-                      50U, "rect.png")
+                      50U, "main_build.png")
 
-        rules[UnitType YELLOW] = int(UnitType RED)
-        rules[UnitType RED] = int(UnitType BLUE)
-        rules[UnitType BLUE] = int(UnitType YELLOW)
+        rules[UnitType SPEARMAN] = int(UnitType CAVALRY)
+        rules[UnitType CAVALRY] = int(UnitType SWORDSMAN)
+        rules[UnitType SWORDSMAN] = int(UnitType SPEARMAN)
 
 def find_enemy(enemy_units: array <EntityId>;
                our_unit_aim_eid: EntityId;
