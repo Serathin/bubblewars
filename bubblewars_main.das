@@ -1,10 +1,6 @@
 require daslib/media
 require daslib/decs_boost
 
-[decs_template]
-struct Inners
-    inners:  array <EntityId>
-
 [export]
 def act(dt: float)
     if get_key(VK_ESCAPE)
@@ -31,7 +27,7 @@ def initialize(is_hard_reload: bool)
                     cmp |> set("width", side_size)
                     cmp |> set("height", side_size)
                     cmp |> set("color", 0xFFFF80)
-                    apply_decs_template(cmp, [[Inners]])
+                    cmp |> set("inners", [[array <EntityId>]])
 
 [decs(stage = draw)]
 def draw_quad_grid(x, y, width, height: int; color: uint)
