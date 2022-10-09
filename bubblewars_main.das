@@ -1,6 +1,10 @@
 require daslib/media
 require daslib/decs_boost
 
+struct Position
+    x: int
+    y: int
+
 let COLLISION_QUAD_SIDE_SIZE = 32
 let CIRCLE_RADIUS = COLLISION_QUAD_SIDE_SIZE / 2 - 1
 
@@ -10,6 +14,11 @@ var main_collision_quad = INVALID_ENTITY_ID
 def act(dt: float)
     if get_key(VK_ESCAPE)
         schedule_quit_game()
+    if get_mouse_button_down(MB_LEFT)
+        query() <| $(var target: Position&)
+            target.x = int(get_mouse_position().x)
+            target.y = int(get_mouse_position().y)
+    decs_stage("move")
 
 
 [export]
@@ -67,6 +76,8 @@ def create_circle(x, y, r: int)
         cmp |> set("x", x)
         cmp |> set("y", y)
         cmp |> set("radius", r)
+        cmp |> set("speed", 500.f)
+        cmp |> set("target", [[Position x = x, y = y]])
         cmp |> set("color", 0x3877C3)
 
 
@@ -139,3 +150,16 @@ def find_rects_intersect_circle(x, y, radius: int; quad: EntityId)
         for need_to_check_quad in need_to_check_quads
             push(intersected_quads, find_rects_intersect_circle(x, y, radius, need_to_check_quad))
     return <- intersected_quads
+
+
+[decs(stage = move)]
+def move_circle(var x, y: int&; speed: float; target: Position)
+    let dt = get_delta_time()
+    let direction_x = target.x - x
+    let direction_y = target.y - y
+    let direction_length_sq = direction_x * direction_x + direction_y * direction_y
+    let direction_length_sqrt_mult = direction_length_sq == 0? 0.f : 1.f / sqrt(float(direction_length_sq))
+    let direction_x_norm = float(direction_x) * direction_length_sqrt_mult
+    let direction_y_norm = float(direction_y) * direction_length_sqrt_mult
+    x = x + int(speed * dt * direction_x_norm)
+    y = y + int(speed * dt * direction_y_norm)
