@@ -43,6 +43,9 @@ def initialize(is_hard_reload: bool)
         for rect in rects
             update_entity(rect) <| @(eid, cmp)
                 cmp |> set("fill", true)
+        query(circle) <| $(var inners: array <EntityId>)
+            for rect in rects
+                inners |> push(rect)
 
 
 [decs(stage = draw, REQUIRE_NOT = fill)]
@@ -79,6 +82,7 @@ def create_circle(x, y, r: int)
         cmp |> set("speed", 500.f)
         cmp |> set("target", [[Position x = x, y = y]])
         cmp |> set("color", 0x3877C3)
+        cmp |> set("inners", [[array <EntityId>]])
 
 
 def create_collision_quads(quad: EntityId; side_size: int)
@@ -153,7 +157,7 @@ def find_rects_intersect_circle(x, y, radius: int; quad: EntityId)
 
 
 [decs(stage = move)]
-def move_circle(var x, y: int&; speed: float; target: Position)
+def move_circle(eid: EntityId; var x, y: int&; radius: int; speed: float; target: Position; var inners: array <EntityId>)
     let dt = get_delta_time()
     let direction_x = target.x - x
     let direction_y = target.y - y
@@ -163,3 +167,19 @@ def move_circle(var x, y: int&; speed: float; target: Position)
     let direction_y_norm = float(direction_y) * direction_length_sqrt_mult
     x = x + int(speed * dt * direction_x_norm)
     y = y + int(speed * dt * direction_y_norm)
+    for inner in inners
+        query(inner) <| $(var inners: array <EntityId>)
+            for i in range(length(inners))
+                if inners[i] == eid
+                    inners |> erase(i)
+                    break
+        update_entity(inner) <| @(eid, cmp)
+            cmp |> remove("fill")
+    inners |> clear()
+    let rects <- find_rects_intersect_circle(x, y, radius, main_collision_quad)
+    for rect in rects
+        update_entity(rect) <| @(eid, cmp)
+            cmp |> set("fill", true)
+    query(eid) <| $(var inners: array <EntityId>)
+        for rect in rects
+            inners |> push(rect)
