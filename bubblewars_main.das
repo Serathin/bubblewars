@@ -1,8 +1,11 @@
 require daslib/media
 require daslib/decs_boost
 
+options debugger
+require daslib/debug
+
 let COLLISION_QUAD_SIDE_SIZE = 32
-let CIRCLE_RADIUS = COLLISION_QUAD_SIDE_SIZE / 2 - 1
+let CIRCLE_RADIUS = float(COLLISION_QUAD_SIDE_SIZE / 2 - 1)
 
 var main_collision_quad = INVALID_ENTITY_ID
 
@@ -33,22 +36,15 @@ def initialize(is_hard_reload: bool)
         create_collision_quads(main_collision_quad, COLLISION_QUAD_SIDE_SIZE)
         let circle_x = screen_width / 4 + 1
         let circle_y = screen_height / 3 - 15
-        let circle = create_circle(float(circle_x), float(circle_y), float(CIRCLE_RADIUS))
+        let circle = create_circle(float(circle_x), float(circle_y), CIRCLE_RADIUS)
         let rects <- find_rects_intersect_circle([[float2 x = circle_x, y = circle_y]], float(CIRCLE_RADIUS), main_collision_quad)
         for rect in rects
             update_entity(rect) <| @(eid, cmp)
                 cmp |> set("fill", true)
+        commit()
         query(circle) <| $(var inners: array <EntityId>)
-            for rect in rects
-                inners |> push(rect)
-
-        var hz : array <EntityId>
-        query() <| $(x, y, width, height: int; inners: array <EntityId>)
-            if x == 960 && y == 256 && width == 320
-                hz |> push(inners)
-        for inner in hz
-            query(inner) <| $(x, y, width, height: int)
-                debug("rect: {x}, {y}, {width}, {height}")
+            inners |> push(rects)
+            debug(inners)
 
 
 [decs(stage = draw, REQUIRE_NOT = fill)]
@@ -90,31 +86,29 @@ def create_circle(x, y, r: float)
 def create_collision_quads(quad: EntityId; side_size: int)
     var first_quad = INVALID_ENTITY_ID
     var second_quad = INVALID_ENTITY_ID
-    query(quad) <| $(x, y, width, height: int; var inners: array <EntityId>)
+    var quad_inners : array <EntityId>
+    query(quad) <| $(x, y, width, height: int)
         if width < height && height > side_size
             let half_height = height / 2
-            let top_height = half_height + (half_height % side_size)
+            let r = half_height % side_size
+            let top_height = half_height + (r == 0? 0 : side_size - r)
             let bottom_height = height - top_height
             first_quad = create_collision_quad(x, y, width, top_height)
             second_quad = create_collision_quad(x, y + top_height, width, bottom_height)
-            push(inners, first_quad)
-            push(inners, second_quad)
-            //debug("rect1: {x}, {y}, {width}, {top_height}")
-            //debug("rect2: {x}, {y}, {width}, {bottom_height}")
+            quad_inners |> push(first_quad)
+            quad_inners |> push(second_quad)
         elif width >= height && width > side_size
             let half_width = width / 2
-            let left_width = half_width + (half_width % side_size)
+            let r = half_width % side_size
+            let left_width = half_width + (r == 0? 0 : side_size - r)
             let right_width = width - left_width
             first_quad = create_collision_quad(x, y, left_width, height)
             second_quad = create_collision_quad(x + left_width, y, right_width, height)
-            push(inners, first_quad)
-            push(inners, second_quad)
-            //debug("rect1: {x}, {y}, {left_width}, {height}")
-            //debug("rect2: {x}, {y}, {right_width}, {height}")
+            quad_inners |> push(first_quad)
+            quad_inners |> push(second_quad)
     commit()
-    query(first_quad) <| $(x, y, width, height: int)
-        if width == 160
-            debug("quad: {x}, {y}, {width}, {height}")
+    query(quad) <| $(var inners: array <EntityId>)
+        inners |> push(quad_inners)
     if first_quad != INVALID_ENTITY_ID
         create_collision_quads(first_quad, side_size)
     if second_quad != INVALID_ENTITY_ID
@@ -123,19 +117,16 @@ def create_collision_quads(quad: EntityId; side_size: int)
 
 def circle_intersects_quad(position: float2; radius: float; quad: EntityId)
     var quad_x, quad_y, quad_width, quad_height: int
-    query(quad) <| $(x, y, width, height: int)
+    query(quad) <| $(eid: EntityId; x, y, width, height: int)
         quad_x = x
         quad_y = y
         quad_width = width
         quad_height = height
-        //debug("rect2: {x}, {y}, {width}, {height}")
 
     let half_quad_width = float(quad_width) * 0.5f
     let half_quad_height = float(quad_height) * 0.5f
     let circle_distance_x = abs(position.x + radius - float(quad_x) - half_quad_width)
     let circle_distance_y = abs(position.y + radius - float(quad_y) - half_quad_height)
-    if quad_x == 1120 && quad_y == 256 && quad_width == 160
-        debug("circ: {position.x}, {position.y}, {radius}, rect: {quad_x}, {quad_y}, {quad_width}, {quad_height}")
 
     if circle_distance_x > half_quad_width + radius
         return false
@@ -150,15 +141,13 @@ def circle_intersects_quad(position: float2; radius: float; quad: EntityId)
     let distance_x = circle_distance_x - half_quad_width
     let distance_y = circle_distance_y - half_quad_height
     let corner_distance_sq = distance_x * distance_x + distance_y * distance_y
+
     return corner_distance_sq <= radius * radius
 
 
 def find_rects_intersect_circle(position: float2; radius: float; quad: EntityId)
     var intersected_quads: array <EntityId>
     if circle_intersects_quad(position, radius, quad)
-        query(quad) <| $(x, y, width, height: int)
-            if width == 320
-                debug("circ: {position}, {radius}, quad: {x}, {y}, {width}, {height}")
         var need_to_check_quads: array <EntityId>
         query(quad) <| $(eid: EntityId; width, height: int; inners: array <EntityId>)
             if width > COLLISION_QUAD_SIDE_SIZE || height > COLLISION_QUAD_SIDE_SIZE
@@ -167,9 +156,6 @@ def find_rects_intersect_circle(position: float2; radius: float; quad: EntityId)
             else
                 push(intersected_quads, eid)
         for need_to_check_quad in need_to_check_quads
-            query(need_to_check_quad) <| $(x, y, width, height: int)
-                if width == 160
-                    debug("circ: {position}, {radius}, quad: {x}, {y}, {width}, {height}")
             push(intersected_quads, find_rects_intersect_circle(position, radius, need_to_check_quad))
     return <- intersected_quads
 
@@ -201,12 +187,10 @@ def move_circle(eid: EntityId; var position: float2&; radius: float; speed: floa
                     break
         update_entity(inner) <| @(eid, cmp)
             cmp |> remove("fill")
+            debug("ok")
     inners |> clear()
     let rects <- find_rects_intersect_circle(position, radius, main_collision_quad)
-    //debug(rects)
     for rect in rects
         update_entity(rect) <| @(eid, cmp)
             cmp |> set("fill", true)
-    query(eid) <| $(var inners: array <EntityId>)
-        for rect in rects
-            inners |> push(rect)
+    inners |> push(rects)
