@@ -29,22 +29,19 @@ def initialize(is_hard_reload: bool)
     if is_hard_reload
         let screen_width = get_screen_width()
         let screen_height = get_screen_height()
-        let column_count = screen_width / COLLISION_QUAD_SIDE_SIZE
-        let row_count = screen_height * 2 / (COLLISION_QUAD_SIDE_SIZE * 3)
         main_collision_quad = create_collision_quad(0, 0, screen_width, screen_height * 2 / 3)
         commit()
         create_collision_quads(main_collision_quad, COLLISION_QUAD_SIDE_SIZE)
-        let circle_x = screen_width / 4 + 1
-        let circle_y = screen_height / 3 - 15
-        let circle = create_circle(float(circle_x), float(circle_y), CIRCLE_RADIUS)
-        let rects <- find_rects_intersect_circle([[float2 x = circle_x, y = circle_y]], float(CIRCLE_RADIUS), main_collision_quad)
+        let circle_x = float(screen_width / 4 + 1)
+        let circle_y = float(screen_height / 3 - 15)
+        let circle = create_circle(circle_x, circle_y, CIRCLE_RADIUS)
+        let rects <- find_rects_intersect_circle(float2(circle_x, circle_y), CIRCLE_RADIUS, main_collision_quad)
         for rect in rects
             update_entity(rect) <| @(eid, cmp)
                 cmp |> set("fill", true)
         commit()
         query(circle) <| $(var inners: array <EntityId>)
             inners |> push(rects)
-            debug(inners)
 
 
 [decs(stage = draw, REQUIRE_NOT = fill)]
@@ -87,26 +84,32 @@ def create_collision_quads(quad: EntityId; side_size: int)
     var first_quad = INVALID_ENTITY_ID
     var second_quad = INVALID_ENTITY_ID
     var quad_inners : array <EntityId>
+    var quad_x, quad_y, quad_width, quad_height: int
     query(quad) <| $(x, y, width, height: int)
-        if width < height && height > side_size
-            let half_height = height / 2
-            let r = half_height % side_size
-            let top_height = half_height + (r == 0? 0 : side_size - r)
-            let bottom_height = height - top_height
-            first_quad = create_collision_quad(x, y, width, top_height)
-            second_quad = create_collision_quad(x, y + top_height, width, bottom_height)
-            quad_inners |> push(first_quad)
-            quad_inners |> push(second_quad)
-        elif width >= height && width > side_size
-            let half_width = width / 2
-            let r = half_width % side_size
-            let left_width = half_width + (r == 0? 0 : side_size - r)
-            let right_width = width - left_width
-            first_quad = create_collision_quad(x, y, left_width, height)
-            second_quad = create_collision_quad(x + left_width, y, right_width, height)
-            quad_inners |> push(first_quad)
-            quad_inners |> push(second_quad)
-    commit()
+        quad_x = x
+        quad_y = y
+        quad_width = width
+        quad_height = height
+    if quad_width < quad_height && quad_height > side_size
+        let half_height = quad_height / 2
+        let r = half_height % side_size
+        let top_height = half_height + (r == 0? 0 : side_size - r)
+        let bottom_height = quad_height - top_height
+        first_quad = create_collision_quad(quad_x, quad_y, quad_width, top_height)
+        second_quad = create_collision_quad(quad_x, quad_y + top_height, quad_width, bottom_height)
+        commit()
+        quad_inners |> push(first_quad)
+        quad_inners |> push(second_quad)
+    elif quad_width >= quad_height && quad_width > side_size
+        let half_width = quad_width / 2
+        let r = half_width % side_size
+        let left_width = half_width + (r == 0? 0 : side_size - r)
+        let right_width = quad_width - left_width
+        first_quad = create_collision_quad(quad_x, quad_y, left_width, quad_height)
+        second_quad = create_collision_quad(quad_x + left_width, quad_y, right_width, quad_height)
+        commit()
+        quad_inners |> push(first_quad)
+        quad_inners |> push(second_quad)
     query(quad) <| $(var inners: array <EntityId>)
         inners |> push(quad_inners)
     if first_quad != INVALID_ENTITY_ID
@@ -117,7 +120,7 @@ def create_collision_quads(quad: EntityId; side_size: int)
 
 def circle_intersects_quad(position: float2; radius: float; quad: EntityId)
     var quad_x, quad_y, quad_width, quad_height: int
-    query(quad) <| $(eid: EntityId; x, y, width, height: int)
+    query(quad) <| $(x, y, width, height: int)
         quad_x = x
         quad_y = y
         quad_width = width
@@ -163,8 +166,8 @@ def find_rects_intersect_circle(position: float2; radius: float; quad: EntityId)
 [decs(stage = move)]
 def move_circle(eid: EntityId; var position: float2&; radius: float; speed: float; target: float2; var inners: array <EntityId>)
     let dt = get_delta_time()
-    let direction_x = target.x - position.x
-    let direction_y = target.y - position.y
+    let direction_x = target.x - position.x + radius
+    let direction_y = target.y - position.y + radius
     if abs(direction_x) < 1e-5 && abs(direction_y) < 1e-5
         return
     let direction_length_sq = direction_x * direction_x + direction_y * direction_y
@@ -187,7 +190,6 @@ def move_circle(eid: EntityId; var position: float2&; radius: float; speed: floa
                     break
         update_entity(inner) <| @(eid, cmp)
             cmp |> remove("fill")
-            debug("ok")
     inners |> clear()
     let rects <- find_rects_intersect_circle(position, radius, main_collision_quad)
     for rect in rects
