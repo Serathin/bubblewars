@@ -1,13 +1,15 @@
 require daslib/media
 require daslib/decs_boost
 
-options debugger
-require daslib/debug
+//options debugger
+//require daslib/debug
 
 let COLLISION_QUAD_SIDE_SIZE = 32
 let CIRCLE_RADIUS = float(COLLISION_QUAD_SIDE_SIZE / 2 - 1)
 
-var main_collision_quad = INVALID_ENTITY_ID
+var collision_quads: array <array <EntityId> >
+var collision_grid_height: int
+var collision_grid_width: int
 
 [export]
 def act(dt: float)
@@ -29,13 +31,13 @@ def initialize(is_hard_reload: bool)
     if is_hard_reload
         let screen_width = get_screen_width()
         let screen_height = get_screen_height()
-        main_collision_quad = create_collision_quad(0, 0, screen_width, screen_height * 2 / 3)
-        commit()
-        create_collision_quads(main_collision_quad, COLLISION_QUAD_SIDE_SIZE)
+        collision_grid_width = screen_width
+        collision_grid_height = screen_height * 2 / 3
+        create_collision_quads()
         let circle_x = float(screen_width / 4 + 1)
         let circle_y = float(screen_height / 3 - 15)
         let circle = create_circle(circle_x, circle_y, CIRCLE_RADIUS)
-        let rects <- find_rects_intersect_circle(float2(circle_x, circle_y), CIRCLE_RADIUS, main_collision_quad)
+        let rects <- find_rects_intersect_circle(float2(circle_x, circle_y), CIRCLE_RADIUS)
         for rect in rects
             update_entity(rect) <| @(eid, cmp)
                 cmp |> set("fill", true)
@@ -80,42 +82,21 @@ def create_circle(x, y, r: float)
         cmp |> set("inners", [[array <EntityId>]])
 
 
-def create_collision_quads(quad: EntityId; side_size: int)
-    var first_quad = INVALID_ENTITY_ID
-    var second_quad = INVALID_ENTITY_ID
-    var quad_inners : array <EntityId>
-    var quad_x, quad_y, quad_width, quad_height: int
-    query(quad) <| $(x, y, width, height: int)
-        quad_x = x
-        quad_y = y
-        quad_width = width
-        quad_height = height
-    if quad_width < quad_height && quad_height > side_size
-        let half_height = quad_height / 2
-        let r = half_height % side_size
-        let top_height = half_height + (r == 0? 0 : side_size - r)
-        let bottom_height = quad_height - top_height
-        first_quad = create_collision_quad(quad_x, quad_y, quad_width, top_height)
-        second_quad = create_collision_quad(quad_x, quad_y + top_height, quad_width, bottom_height)
-        commit()
-        quad_inners |> push(first_quad)
-        quad_inners |> push(second_quad)
-    elif quad_width >= quad_height && quad_width > side_size
-        let half_width = quad_width / 2
-        let r = half_width % side_size
-        let left_width = half_width + (r == 0? 0 : side_size - r)
-        let right_width = quad_width - left_width
-        first_quad = create_collision_quad(quad_x, quad_y, left_width, quad_height)
-        second_quad = create_collision_quad(quad_x + left_width, quad_y, right_width, quad_height)
-        commit()
-        quad_inners |> push(first_quad)
-        quad_inners |> push(second_quad)
-    query(quad) <| $(var inners: array <EntityId>)
-        inners |> push(quad_inners)
-    if first_quad != INVALID_ENTITY_ID
-        create_collision_quads(first_quad, side_size)
-    if second_quad != INVALID_ENTITY_ID
-        create_collision_quads(second_quad, side_size)
+def create_collision_quads()
+    let rows = collision_grid_height / COLLISION_QUAD_SIDE_SIZE
+    let columns = collision_grid_width / COLLISION_QUAD_SIDE_SIZE
+    let additional_row = collision_grid_height % COLLISION_QUAD_SIDE_SIZE > 0 ? 1 : 0
+    let additional_column = collision_grid_width % COLLISION_QUAD_SIDE_SIZE > 0 ? 1 : 0
+    collision_quads |> resize(rows + additional_row)
+    for i in range(rows)
+        collision_quads[i] |> reserve(columns + additional_column)
+        let y = i * COLLISION_QUAD_SIDE_SIZE
+        for j in range(columns)
+            collision_quads[i] |> push(create_collision_quad(j * COLLISION_QUAD_SIDE_SIZE,
+                                                             y,
+                                                             COLLISION_QUAD_SIDE_SIZE,
+                                                             COLLISION_QUAD_SIDE_SIZE))
+    commit()
 
 
 def circle_intersects_quad(position: float2; radius: float; quad: EntityId)
@@ -148,26 +129,26 @@ def circle_intersects_quad(position: float2; radius: float; quad: EntityId)
     return corner_distance_sq <= radius * radius
 
 
-def find_rects_intersect_circle(position: float2; radius: float; quad: EntityId)
+def find_rects_intersect_circle(position: float2; radius: float)
     var intersected_quads: array <EntityId>
-    if circle_intersects_quad(position, radius, quad)
-        var need_to_check_quads: array <EntityId>
-        query(quad) <| $(eid: EntityId; width, height: int; inners: array <EntityId>)
-            if width > COLLISION_QUAD_SIDE_SIZE || height > COLLISION_QUAD_SIDE_SIZE
-                for inner in inners
-                    push(need_to_check_quads, inner)
-            else
-                push(intersected_quads, eid)
-        for need_to_check_quad in need_to_check_quads
-            push(intersected_quads, find_rects_intersect_circle(position, radius, need_to_check_quad))
+    let row = length(collision_quads) * int(position.y) / (collision_grid_height + (COLLISION_QUAD_SIDE_SIZE - collision_grid_height % COLLISION_QUAD_SIDE_SIZE)) + 1
+    let column = length(collision_quads[row]) * int(position.x) / (collision_grid_width + (COLLISION_QUAD_SIDE_SIZE - collision_grid_width % COLLISION_QUAD_SIDE_SIZE)) + 1
+    for i in range(-1, 2)
+        for j in range(-1, 2)
+            if (row + i < length(collision_quads) &&
+                row + i >= 0 &&
+                column + j < length(collision_quads[row + i]) &&
+                column + j >= 0)
+                if circle_intersects_quad(position, radius, collision_quads[row + i][column + j])
+                    intersected_quads |> push(collision_quads[row + i][column + j])
     return <- intersected_quads
 
 
 [decs(stage = move)]
 def move_circle(eid: EntityId; var position: float2&; radius: float; speed: float; target: float2; var inners: array <EntityId>)
     let dt = get_delta_time()
-    let direction_x = target.x - position.x + radius
-    let direction_y = target.y - position.y + radius
+    let direction_x = target.x - position.x - radius
+    let direction_y = target.y - position.y - radius
     if abs(direction_x) < 1e-5 && abs(direction_y) < 1e-5
         return
     let direction_length_sq = direction_x * direction_x + direction_y * direction_y
@@ -175,11 +156,11 @@ def move_circle(eid: EntityId; var position: float2&; radius: float; speed: floa
     let direction_x_norm = float(direction_x) * direction_length_sqrt_mult
     let direction_y_norm = float(direction_y) * direction_length_sqrt_mult
     if abs(speed * dt * direction_x_norm) > abs(direction_x)
-        position.x = target.x
+        position.x = target.x - radius
     else
         position.x = position.x + speed * dt * direction_x_norm
     if abs(speed * dt * direction_y_norm) > abs(direction_y)
-        position.y = target.y
+        position.y = target.y - radius
     else
         position.y = position.y + speed * dt * direction_y_norm
     for inner in inners
@@ -191,7 +172,7 @@ def move_circle(eid: EntityId; var position: float2&; radius: float; speed: floa
         update_entity(inner) <| @(eid, cmp)
             cmp |> remove("fill")
     inners |> clear()
-    let rects <- find_rects_intersect_circle(position, radius, main_collision_quad)
+    let rects <- find_rects_intersect_circle(position, radius)
     for rect in rects
         update_entity(rect) <| @(eid, cmp)
             cmp |> set("fill", true)
