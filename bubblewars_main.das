@@ -37,13 +37,24 @@ def initialize(is_hard_reload: bool)
         let circle_x = float(screen_width / 4 + 1)
         let circle_y = float(screen_height / 3 - 15)
         let circle = create_circle(circle_x, circle_y, CIRCLE_RADIUS)
+        let test_circle = create_test_circle(circle_x + float(screen_width / 2), circle_y + 20.f, CIRCLE_RADIUS)
         let rects <- find_rects_intersect_circle(float2(circle_x, circle_y), CIRCLE_RADIUS)
         for rect in rects
+            query(rect) <| $(var inners: array <EntityId>)
+                inners |> push(circle)
+            update_entity(rect) <| @(eid, cmp)
+                cmp |> set("fill", true)
+        let test_rects <- find_rects_intersect_circle(float2(circle_x + float(screen_width / 2), circle_y + 20.f), CIRCLE_RADIUS)
+        for rect in test_rects
+            query(rect) <| $(var inners: array <EntityId>)
+                inners |> push(test_circle)
             update_entity(rect) <| @(eid, cmp)
                 cmp |> set("fill", true)
         commit()
         query(circle) <| $(var inners: array <EntityId>)
             inners |> push(rects)
+        query(test_circle) <| $(var inners: array <EntityId>)
+            inners |> push(test_rects)
 
 
 [decs(stage = draw, REQUIRE_NOT = fill)]
@@ -74,10 +85,19 @@ def create_collision_quad(x, y, width, height: int)
 def create_circle(x, y, r: float)
     return create_entity <| @(eid, cmp)
         cmp |> set("eid", eid)
-        cmp |> set("position", [[float2 x = x, y = y]])
+        cmp |> set("position", float2(x, y))
         cmp |> set("radius", r)
         cmp |> set("speed", 500.f)
-        cmp |> set("target", [[float2 x = x, y = y]])
+        cmp |> set("target", float2(x, y))
+        cmp |> set("color", 0x3877C3)
+        cmp |> set("inners", [[array <EntityId>]])
+
+
+def create_test_circle(x, y, r: float)
+    return create_entity <| @(eid, cmp)
+        cmp |> set("eid", eid)
+        cmp |> set("position", float2(x, y))
+        cmp |> set("radius", r)
         cmp |> set("color", 0x3877C3)
         cmp |> set("inners", [[array <EntityId>]])
 
@@ -141,11 +161,12 @@ def find_rects_intersect_circle(position: float2; radius: float)
                 column + j >= 0)
                 if circle_intersects_quad(position, radius, collision_quads[row + i][column + j])
                     intersected_quads |> push(collision_quads[row + i][column + j])
+            continue
     return <- intersected_quads
 
 
 [decs(stage = move)]
-def move_circle(eid: EntityId; var position: float2&; radius: float; speed: float; target: float2; var inners: array <EntityId>)
+def move_circle(eid: EntityId; var position: float2&; radius: float; speed: float; var target: float2&; var inners: array <EntityId>)
     let dt = get_delta_time()
     let direction_x = target.x - position.x - radius
     let direction_y = target.y - position.y - radius
@@ -155,24 +176,44 @@ def move_circle(eid: EntityId; var position: float2&; radius: float; speed: floa
     let direction_length_sqrt_mult = direction_length_sq == 0.f? 0.f : 1.f / sqrt(direction_length_sq)
     let direction_x_norm = float(direction_x) * direction_length_sqrt_mult
     let direction_y_norm = float(direction_y) * direction_length_sqrt_mult
+    var new_position: float2
     if abs(speed * dt * direction_x_norm) > abs(direction_x)
-        position.x = target.x - radius
+        new_position.x = target.x - radius
     else
-        position.x = position.x + speed * dt * direction_x_norm
+        new_position.x = position.x + speed * dt * direction_x_norm
     if abs(speed * dt * direction_y_norm) > abs(direction_y)
-        position.y = target.y - radius
+        new_position.y = target.y - radius
     else
-        position.y = position.y + speed * dt * direction_y_norm
+        new_position.y = position.y + speed * dt * direction_y_norm
+    let rects <- find_rects_intersect_circle(new_position, radius)
+    var probably_intersect_circles: array <EntityId>
+    for rect in rects
+        query(rect) <| $(inners: array <EntityId>)
+            probably_intersect_circles |> push(inners)
+    var find_intersect = false
+    for probably_intersect_circle in probably_intersect_circles
+        if probably_intersect_circle == eid
+            continue
+        query(probably_intersect_circle) <| $(position: float2)
+            if (position.x - new_position.x) * (position.x - new_position.x) + (position.y - new_position.y) * (position.y - new_position.y) <= 4.f * CIRCLE_RADIUS * CIRCLE_RADIUS
+                find_intersect = true
+        if find_intersect
+            target = float2(position.x + radius, position.y + radius)
+            return
+    position = new_position
     for inner in inners
+        var need_to_clear = false
         query(inner) <| $(var inners: array <EntityId>)
             for i in range(length(inners))
                 if inners[i] == eid
                     inners |> erase(i)
                     break
+            if empty(inners)
+                need_to_clear = true
         update_entity(inner) <| @(eid, cmp)
-            cmp |> remove("fill")
+            if need_to_clear
+                cmp |> remove("fill")
     inners |> clear()
-    let rects <- find_rects_intersect_circle(position, radius)
     for rect in rects
         update_entity(rect) <| @(eid, cmp)
             cmp |> set("fill", true)
